@@ -12,7 +12,7 @@ categories  = ["embedded", "multimedia::audio", "no-std"]
 keywords    = ["303", "audio", "music", "synthesis", "acid"]
 
 [dependencies]
-cortex-m = "0.5"
+cortex-m = { version = "0.5", features = ["const-fn"] }
 cortex-m-rt = "0.6"
 micromath = "0.3"
 panic-halt = "0.2"
