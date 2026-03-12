@@ -14,9 +14,13 @@ Inspired by [Propellerhead ReBirth].
 
 ## Status
 
-The current code produces a working executable which can be loaded onto a
-NeoTrellis M4 device, however no functionality is yet in place (unless you
-like blinking LEDs).
+Working TB-303-style acid synthesizer. Features:
+- Sawtooth/square oscillator with resonant lowpass filter
+- 8-step sequencer with accent and slide (two banks for 16 steps)
+- Accelerometer tilt controls filter cutoff frequency
+- 4x8 keypad for live pattern editing
+- NeoPixel display shows sequencer state with color-coded notes
+- Audio output on PA2 (DAC0) — connect headphones or amplifier
 
 ## Requirements
 

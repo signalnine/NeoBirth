@@ -5,8 +5,8 @@
 
 #![allow(unsafe_code)]
 
-use trellis_m4 as hal;
 use hal::target_device::DAC;
+use trellis_m4 as hal;
 
 /// DAC audio output driver
 pub struct Dac {
@@ -29,10 +29,7 @@ impl Dac {
         // Configure channel 0:
         // - Enable the channel
         // - Set current control for our sample rate range
-        dac.dacctrl[0].modify(|_, w| {
-            w.enable().set_bit()
-             .cctrl().cc100k()
-        });
+        dac.dacctrl[0].modify(|_, w| w.enable().set_bit().cctrl().cc100k());
 
         // Enable DAC controller
         dac.ctrla.modify(|_, w| w.enable().set_bit());
@@ -47,13 +44,7 @@ impl Dac {
     /// Output: 12-bit unsigned value written to DAC DATA register
     pub fn write_sample(&mut self, sample: f32) {
         // Convert [-1.0, 1.0] -> [0, 4095]
-        let clamped = if sample < -1.0 {
-            -1.0
-        } else if sample > 1.0 {
-            1.0
-        } else {
-            sample
-        };
+        let clamped = sample.clamp(-1.0, 1.0);
         let value = ((clamped + 1.0) * 2047.5) as u16;
 
         self.dac.data[0].write(|w| unsafe { w.data().bits(value) });

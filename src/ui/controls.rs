@@ -44,9 +44,9 @@ impl KeypadState {
     pub fn scan(&mut self, pressed: &[[bool; 8]; 4]) -> Option<KeyAction> {
         let mut result = None;
 
-        for row in 0..4 {
-            for col in 0..8 {
-                let rising = pressed[row][col] && !self.prev[row][col];
+        for (row, row_pressed) in pressed.iter().enumerate() {
+            for (col, &is_pressed) in row_pressed.iter().enumerate() {
+                let rising = is_pressed && !self.prev[row][col];
                 if rising && result.is_none() {
                     result = match row {
                         0 => Some(KeyAction::CycleNote(col as u8)),
@@ -63,7 +63,7 @@ impl KeypadState {
                         _ => None,
                     };
                 }
-                self.prev[row][col] = pressed[row][col];
+                self.prev[row][col] = is_pressed;
             }
         }
 

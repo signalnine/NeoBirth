@@ -33,13 +33,7 @@ const FREQ_TABLE: [f32; 49] = [
 ///
 /// Notes outside the range 24-72 are clamped to the nearest boundary.
 pub fn midi_to_freq(note: u8) -> f32 {
-    let clamped = if note < 24 {
-        24u8
-    } else if note > 72 {
-        72u8
-    } else {
-        note
-    };
+    let clamped = note.clamp(24, 72);
     FREQ_TABLE[(clamped - 24) as usize]
 }
 
@@ -89,8 +83,7 @@ impl Step {
 
         // Compute the octave offset: 0 -> -1, 1 -> 0, 2 -> +1
         let octave_offset: i8 = self.octave as i8 - 1;
-        let midi_note =
-            BASE_NOTE as i16 + self.note as i16 + (octave_offset as i16 * 12);
+        let midi_note = BASE_NOTE as i16 + self.note as i16 + (octave_offset as i16 * 12);
 
         // Clamp to u8 range before passing to midi_to_freq
         let clamped = if midi_note < 0 {

@@ -23,7 +23,7 @@ mod colors;
 mod sequencer;
 mod ui;
 
-#[allow(unused_imports)]
+#[allow(unused_imports, clippy::single_component_path_imports)]
 use panic_halt;
 use trellis_m4 as hal;
 use ws2812_nop_samd51 as ws2812;
@@ -96,10 +96,7 @@ fn main() -> ! {
 
     // --- DAC setup ---
     // Enable DAC APB clock
-    peripherals
-        .MCLK
-        .apbdmask
-        .modify(|_, w| w.dac_().set_bit());
+    peripherals.MCLK.apbdmask.modify(|_, w| w.dac_().set_bit());
 
     // Route GCLK0 (120 MHz) to DAC peripheral via PCHCTRL
     // GCLK has been consumed by GenericClockController, access via raw pointer
@@ -139,10 +136,7 @@ fn main() -> ! {
     }
 
     // Enable TC0 APB clock
-    peripherals
-        .MCLK
-        .apbamask
-        .modify(|_, w| w.tc0_().set_bit());
+    peripherals.MCLK.apbamask.modify(|_, w| w.tc0_().set_bit());
 
     // Configure TC0 for 22,050 Hz audio sample rate
     // 120 MHz / 16 / 340 = ~22,058 Hz
@@ -171,10 +165,7 @@ fn main() -> ! {
     }
 
     // Enable TC1 APB clock
-    peripherals
-        .MCLK
-        .apbamask
-        .modify(|_, w| w.tc1_().set_bit());
+    peripherals.MCLK.apbamask.modify(|_, w| w.tc1_().set_bit());
 
     // Configure TC1 for ~8 Hz sequencer clock (120 BPM 16th notes)
     // 120 MHz / 1024 / 14648 = ~8.0 Hz
@@ -185,8 +176,7 @@ fn main() -> ! {
         while tc.syncbusy.read().enable().bit_is_set() {}
 
         // Set mode to COUNT16, prescaler DIV1024
-        tc.ctrla
-            .write(|w| w.mode().count16().prescaler().div1024());
+        tc.ctrla.write(|w| w.mode().count16().prescaler().div1024());
         while tc.syncbusy.read().enable().bit_is_set() {}
 
         // Set waveform generation to MFRQ
@@ -211,8 +201,12 @@ fn main() -> ! {
         core_peripherals
             .NVIC
             .set_priority(hal::target_device::Interrupt::TC1, 2);
-        core_peripherals.NVIC.enable(hal::target_device::Interrupt::TC0);
-        core_peripherals.NVIC.enable(hal::target_device::Interrupt::TC1);
+        core_peripherals
+            .NVIC
+            .enable(hal::target_device::Interrupt::TC0);
+        core_peripherals
+            .NVIC
+            .enable(hal::target_device::Interrupt::TC1);
     }
 
     // --- Main loop ---
@@ -227,23 +221,15 @@ fn main() -> ! {
             let x_abs = if x < 0.0 { -x } else { x };
             if x_abs > 128.0 {
                 if x >= 0.0 {
-                    sequencer::ACTIVE_BANK
-                        .store(0, core::sync::atomic::Ordering::Release);
+                    sequencer::ACTIVE_BANK.store(0, core::sync::atomic::Ordering::Release);
                 } else {
-                    sequencer::ACTIVE_BANK
-                        .store(1, core::sync::atomic::Ordering::Release);
+                    sequencer::ACTIVE_BANK.store(1, core::sync::atomic::Ordering::Release);
                 }
             }
 
             // Map X-axis tilt to filter cutoff (80-8000 Hz)
             let normalized = (x + 256.0) / 512.0;
-            let clamped = if normalized < 0.0 {
-                0.0f32
-            } else if normalized > 1.0 {
-                1.0f32
-            } else {
-                normalized
-            };
+            let clamped = normalized.clamp(0.0, 1.0);
             let cutoff = 80.0 + clamped * 7920.0;
             audio::engine::FILTER_CUTOFF
                 .store(cutoff as u16, core::sync::atomic::Ordering::Relaxed);
@@ -268,8 +254,7 @@ fn main() -> ! {
             cortex_m::interrupt::free(|cs| {
                 if let Some(seq) = SEQ.borrow(cs).borrow_mut().as_mut() {
                     let bank =
-                        sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed)
-                            as usize;
+                        sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed) as usize;
                     ui::controls::apply_action(
                         &mut seq.patterns.banks[bank].steps[step_idx],
                         &action,
@@ -279,10 +264,8 @@ fn main() -> ! {
         }
 
         // Update LED display from sequencer state
-        let step_idx =
-            sequencer::CURRENT_STEP.load(core::sync::atomic::Ordering::Relaxed);
-        let bank =
-            sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed) as usize;
+        let step_idx = sequencer::CURRENT_STEP.load(core::sync::atomic::Ordering::Relaxed);
+        let bank = sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed) as usize;
         cortex_m::interrupt::free(|cs| {
             if let Some(seq) = SEQ.borrow(cs).borrow().as_ref() {
                 ui::leds::render(&mut pixels, &seq.patterns.banks[bank], step_idx);

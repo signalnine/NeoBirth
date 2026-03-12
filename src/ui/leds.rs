@@ -1,8 +1,8 @@
 //! LED display for sequencer state
 
-use smart_leds::Color;
 use crate::colors;
 use crate::sequencer::pattern::{Pattern, STEPS_PER_PATTERN};
+use smart_leds::Color;
 
 /// Total number of LEDs on the NeoTrellis M4
 const NUM_LEDS: usize = 32;
@@ -25,10 +25,21 @@ pub fn render(pixels: &mut [Color; NUM_LEDS], pattern: &Pattern, current_step: u
             pixels[col] = colors::dim(base_color, brightness);
             pixels[8 + col] = colors::dim(base_color, brightness);
             if step.slide {
-                pixels[16 + col] = colors::dim(Color { r: 0x00, g: 0x60, b: 0x20 }, brightness);
+                pixels[16 + col] = colors::dim(
+                    Color {
+                        r: 0x00,
+                        g: 0x60,
+                        b: 0x20,
+                    },
+                    brightness,
+                );
             }
             if step.accent {
-                pixels[24 + col] = Color { r: 0x60, g: 0x00, b: 0x00 };
+                pixels[24 + col] = Color {
+                    r: 0x60,
+                    g: 0x00,
+                    b: 0x00,
+                };
             }
         }
     }
