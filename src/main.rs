@@ -18,7 +18,11 @@
     unused_qualifications
 )]
 
+#[allow(dead_code)]
+mod audio;
 mod colors;
+#[allow(dead_code)]
+mod sequencer;
 
 #[allow(unused_imports)]
 use panic_halt;
