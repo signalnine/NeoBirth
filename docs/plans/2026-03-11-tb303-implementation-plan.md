@@ -12,6 +12,8 @@
 
 **Verification:** No test harness exists for this no_std target. Every task verifies with `CARGO_INCREMENTAL=0 cargo build --release`. On-hardware testing requires flashing the device.
 
+**Shared constant:** All DSP modules must use `SAMPLE_RATE` from `src/audio/mod.rs` — never define it locally. This prevents silent desynchronization if the rate changes.
+
 ---
 
 ### Task 1: Update Dependencies
@@ -102,6 +104,9 @@ These are pure math modules with no hardware dependencies. They operate on `f32`
 pub mod envelope;
 pub mod filter;
 pub mod oscillator;
+
+/// Audio sample rate in Hz (shared by all DSP modules)
+pub const SAMPLE_RATE: f32 = 22_050.0;
 ```
 
 **Step 2: Create `src/audio/oscillator.rs`**
@@ -133,9 +138,6 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
-    /// Sample rate in Hz
-    const SAMPLE_RATE: f32 = 22_050.0;
-
     /// Create a new oscillator
     pub fn new() -> Self {
         Self {
@@ -149,13 +151,13 @@ impl Oscillator {
 
     /// Set frequency in Hz (immediate, no slide)
     pub fn set_frequency(&mut self, freq: f32) {
-        self.phase_inc = freq / Self::SAMPLE_RATE;
+        self.phase_inc = freq / super::SAMPLE_RATE;
         self.target_phase_inc = self.phase_inc;
     }
 
     /// Set frequency with slide (portamento)
     pub fn slide_to_frequency(&mut self, freq: f32) {
-        self.target_phase_inc = freq / Self::SAMPLE_RATE;
+        self.target_phase_inc = freq / super::SAMPLE_RATE;
     }
 
     /// Set slide rate (0.001 = slow glide, 1.0 = instant)
@@ -214,9 +216,6 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// Sample rate in Hz
-    const SAMPLE_RATE: f32 = 22_050.0;
-
     /// Create a new filter with default settings
     pub fn new() -> Self {
         Self {
@@ -232,7 +231,7 @@ impl Filter {
         // Convert frequency to coefficient
         // f = 2 * sin(pi * freq / sample_rate)
         // Approximation valid for freq << sample_rate/2
-        let f = freq / Self::SAMPLE_RATE;
+        let f = freq / super::SAMPLE_RATE;
         // Clamp to prevent instability
         self.cutoff = if f < 0.001 {
             0.001
@@ -303,9 +302,6 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    /// Sample rate in Hz
-    const SAMPLE_RATE: f32 = 22_050.0;
-
     /// Create a new envelope with default settings
     pub fn new() -> Self {
         // Decay time ~200ms normal, ~100ms accented
@@ -324,7 +320,7 @@ impl Envelope {
 
     /// Calculate decay coefficient for a given time in milliseconds
     fn decay_for_ms(ms: f32) -> f32 {
-        let samples = ms * Self::SAMPLE_RATE / 1000.0;
+        let samples = ms * super::SAMPLE_RATE / 1000.0;
         // Coefficient that decays to ~1% over `samples` samples
         // 0.01 = coeff^samples → coeff = 0.01^(1/samples)
         // Approximation: 1.0 - (4.6 / samples)
@@ -899,9 +895,13 @@ fn main() -> ! {
     let mut accel_tracker = adxl343.try_into_tracker().unwrap();
 
     // --- DAC setup ---
-    // Enable DAC clock
+    // Enable DAC peripheral clock in MCLK
     peripherals.MCLK.apbdmask.modify(|_, w| w.dac_().set_bit());
-    // TODO: Configure GCLK for DAC: clocks.dac(&clocks.gclk0())
+    // Configure GCLK source for DAC (required — DAC will not function without this)
+    let gclk0 = clocks.gclk0();
+    let _dac_clock = clocks.dac(&gclk0).unwrap();
+    // Configure PA2 pin for DAC0 alternate function (peripheral function B)
+    let _dac_pin = pins.analog.a0.into_function_b(&mut pins.port);
     let dac = Dac::new(peripherals.DAC);
 
     // --- Synth voice ---
@@ -994,12 +994,16 @@ This is the most hardware-specific task. Timer register configuration depends on
 After the DAC setup and before the main loop, add TC0 and TC1 configuration. Insert this code where the TODO comments are:
 
 ```rust
+// --- TC0/TC1 clock source (shared) ---
+// CRITICAL: TC0 and TC1 share a GCLK source. Must configure before using either timer.
+let gclk0 = clocks.gclk0();
+let _tc_clock = clocks.tc0_tc1(&gclk0).unwrap();
+
 // --- TC0: Audio sample rate timer (22,050 Hz) ---
-// Enable TC0 clock
+// Enable TC0 peripheral clock in MCLK
 peripherals.MCLK.apbamask.modify(|_, w| w.tc0_().set_bit());
 
-// Configure GCLK for TC0/TC1
-// 120MHz / prescaler / CC = 22050Hz
+// 120MHz GCLK / prescaler / CC = 22050Hz
 // With DIV16: 120MHz / 16 = 7.5MHz, CC = 7500000 / 22050 ≈ 340
 let tc0 = peripherals.TC0.count16();
 
@@ -1026,7 +1030,7 @@ tc0.wave.write(|w| w.wavegen().mfrq());
 tc0.ctrla.modify(|_, w| w.enable().set_bit());
 while tc0.syncbusy.read().enable().bit_is_set() {}
 
-// --- TC1: Sequencer clock ---
+// --- TC1: Sequencer clock (uses same GCLK as TC0, already configured above) ---
 // 120 BPM = 2 beats/sec, 16th notes = 8 ticks/sec
 // With DIV1024: 120MHz / 1024 = 117,187.5 Hz, CC = 117187 / 8 ≈ 14648
 peripherals.MCLK.apbamask.modify(|_, w| w.tc1_().set_bit());
