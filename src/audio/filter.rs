@@ -1,5 +1,7 @@
 //! 2-pole resonant state-variable lowpass filter (Chamberlin)
 
+#![allow(dead_code)]
+
 /// Chamberlin state-variable lowpass filter
 pub struct Filter {
     /// Low-pass output state

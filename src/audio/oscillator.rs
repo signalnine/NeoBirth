@@ -1,5 +1,7 @@
 //! Phase-accumulator oscillator with saw and square waveforms
 
+#![allow(dead_code)]
+
 /// Waveform type
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Waveform {

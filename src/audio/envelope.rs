@@ -1,5 +1,7 @@
 //! Exponential decay envelope generator
 
+#![allow(dead_code)]
+
 /// Exponential decay envelope
 pub struct Envelope {
     /// Current envelope value

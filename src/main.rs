@@ -18,11 +18,10 @@
     unused_qualifications
 )]
 
-#[allow(dead_code)]
 mod audio;
 mod colors;
-#[allow(dead_code)]
 mod sequencer;
+mod ui;
 
 #[allow(unused_imports)]
 use panic_halt;
@@ -31,6 +30,7 @@ use ws2812_nop_samd51 as ws2812;
 
 use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
+use hal::adxl343::accelerometer::Accelerometer;
 use hal::prelude::*;
 use hal::target_device::interrupt;
 use hal::{clock::GenericClockController, delay::Delay, entry, CorePeripherals, Peripherals};
@@ -80,7 +80,7 @@ fn main() -> ! {
     let mut neopixel = ws2812::Ws2812::new(neopixel_pin);
 
     // --- Accelerometer ---
-    let adxl343 = pins
+    let mut adxl343 = pins
         .accel
         .open(
             &mut clocks,
@@ -90,7 +90,9 @@ fn main() -> ! {
         )
         .unwrap();
 
-    let mut accel_tracker = adxl343.try_into_tracker().unwrap();
+    // --- Keypad ---
+    let keypad = hal::Keypad::new(pins.keypad, &mut pins.port);
+    let mut keypad_state = ui::controls::KeypadState::new();
 
     // --- DAC setup ---
     // Enable DAC APB clock
@@ -215,35 +217,77 @@ fn main() -> ! {
 
     // --- Main loop ---
     let mut pixels = [Color::default(); NUM_LEDS];
-    let bank_colors = [colors::WHITE, colors::YELLOW, colors::ORANGE, colors::RED];
 
     loop {
-        // Read accelerometer to select bank
-        use hal::adxl343::accelerometer;
-        match accel_tracker.orientation().unwrap() {
-            accelerometer::Orientation::LandscapeUp => {
-                sequencer::ACTIVE_BANK.store(0, core::sync::atomic::Ordering::Release);
-            }
-            accelerometer::Orientation::LandscapeDown => {
-                sequencer::ACTIVE_BANK.store(1, core::sync::atomic::Ordering::Release);
-            }
-            _ => (),
-        }
+        // Read raw accelerometer for orientation + filter cutoff
+        if let Ok(accel) = adxl343.acceleration() {
+            let x = f32::from(accel.x);
 
-        // Display: bank color with current step highlight
-        let bank = sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Acquire) as usize;
-        let step =
-            sequencer::CURRENT_STEP.load(core::sync::atomic::Ordering::Acquire) as usize;
-        let base_color = bank_colors[bank % bank_colors.len()];
+            // Orientation detection (threshold ~0.5g in ±2G mode)
+            let x_abs = if x < 0.0 { -x } else { x };
+            if x_abs > 128.0 {
+                if x >= 0.0 {
+                    sequencer::ACTIVE_BANK
+                        .store(0, core::sync::atomic::Ordering::Release);
+                } else {
+                    sequencer::ACTIVE_BANK
+                        .store(1, core::sync::atomic::Ordering::Release);
+                }
+            }
 
-        for (i, pixel) in pixels.iter_mut().enumerate() {
-            if i == step {
-                // Highlight current step with bright white
-                *pixel = colors::WHITE;
+            // Map X-axis tilt to filter cutoff (80-8000 Hz)
+            let normalized = (x + 256.0) / 512.0;
+            let clamped = if normalized < 0.0 {
+                0.0f32
+            } else if normalized > 1.0 {
+                1.0f32
             } else {
-                *pixel = base_color;
+                normalized
+            };
+            let cutoff = 80.0 + clamped * 7920.0;
+            audio::engine::FILTER_CUTOFF
+                .store(cutoff as u16, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        // Scan keypad for pattern editing
+        let keypad_inputs = keypad.decompose();
+        let mut pressed = [[false; 8]; 4];
+        for (row_idx, row) in keypad_inputs.iter().enumerate() {
+            for (col_idx, button) in row.iter().enumerate() {
+                pressed[row_idx][col_idx] = button.is_low();
             }
         }
+
+        if let Some(action) = keypad_state.scan(&pressed) {
+            let step_idx = match &action {
+                ui::controls::KeyAction::CycleNote(s)
+                | ui::controls::KeyAction::ToggleAccent(s)
+                | ui::controls::KeyAction::ToggleSlide(s)
+                | ui::controls::KeyAction::ClearStep(s) => *s as usize,
+            };
+            cortex_m::interrupt::free(|cs| {
+                if let Some(seq) = SEQ.borrow(cs).borrow_mut().as_mut() {
+                    let bank =
+                        sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed)
+                            as usize;
+                    ui::controls::apply_action(
+                        &mut seq.patterns.banks[bank].steps[step_idx],
+                        &action,
+                    );
+                }
+            });
+        }
+
+        // Update LED display from sequencer state
+        let step_idx =
+            sequencer::CURRENT_STEP.load(core::sync::atomic::Ordering::Relaxed);
+        let bank =
+            sequencer::ACTIVE_BANK.load(core::sync::atomic::Ordering::Relaxed) as usize;
+        cortex_m::interrupt::free(|cs| {
+            if let Some(seq) = SEQ.borrow(cs).borrow().as_ref() {
+                ui::leds::render(&mut pixels, &seq.patterns.banks[bank], step_idx);
+            }
+        });
 
         neopixel.write(pixels.iter().cloned()).unwrap();
 
